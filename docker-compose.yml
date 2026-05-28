@@ -1,0 +1,23 @@
+version: '3.9'
+
+services:
+  quarantine:
+    build: .
+    container_name: quarantine
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      # Persist uploads and trained models outside the container
+      - ./data/uploads:/app/data/uploads
+      - ./ml/models:/app/ml/models
+      # Allow live-editing YARA rules without rebuild
+      - ./yara_rules:/app/yara_rules
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/status')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

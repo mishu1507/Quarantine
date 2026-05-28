@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quarantine — Malware Detection</title>
+  <meta name="description" content="Self-hosted malware detection tool for Windows PE files. Drag and drop an executable to get an instant verdict: clean, suspicious, or malware." />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔬</text></svg>" />
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────────────────────────────── -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="logo">
+        <div class="logo-icon">🔬</div>
+        QUARANTINE
+      </div>
+      <div class="header-status" id="header-status">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-text">connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       VIEW 1 — UPLOAD
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div id="view-upload" class="view active">
+    <div class="container">
+      <section class="upload-section">
+
+        <div class="upload-hero">
+          <h1>Drop a file.<br /><span>Get the truth.</span></h1>
+          <p>Static analysis + ML scoring on Windows PE files.<br />Self-hosted. No cloud. No telemetry.</p>
+        </div>
+
+        <!-- Drop Zone -->
+        <div class="drop-zone" id="drop-zone" role="button" tabindex="0" aria-label="File drop zone — click or drag a PE file here">
+          <span class="drop-icon">⬇</span>
+          <div class="drop-title">Drag &amp; drop your file here</div>
+          <div class="drop-sub">
+            or <span class="link-btn" id="browse-link">browse to select</span>
+          </div>
+          <div class="drop-types">
+            <span class="type-badge">.exe</span>
+            <span class="type-badge">.dll</span>
+            <span class="type-badge">.sys</span>
+            <span class="type-badge">.scr</span>
+            <span class="type-badge">.com</span>
+            <span class="type-badge">.bin</span>
+          </div>
+        </div>
+        <input type="file" id="file-input" accept=".exe,.dll,.sys,.scr,.com,.bin" style="display:none" aria-hidden="true" />
+
+        <!-- File Preview -->
+        <div class="file-preview" id="file-preview">
+          <div class="file-preview-header">
+            <div class="file-preview-name" id="preview-name">—</div>
+            <button class="file-clear-btn" id="clear-btn" title="Remove file" aria-label="Remove selected file">✕</button>
+          </div>
+          <div class="file-meta">
+            <div class="file-meta-item"><strong>SIZE</strong><span id="preview-size">—</span></div>
+            <div class="file-meta-item"><strong>TYPE</strong><span id="preview-type">—</span></div>
+            <div class="file-meta-item" style="flex:1"><strong>SHA-256</strong><span id="preview-sha256" style="word-break:break-all">computing…</span></div>
+          </div>
+        </div>
+
+        <!-- Error -->
+        <div class="error-banner" id="upload-error" role="alert"></div>
+
+        <!-- Scan Button -->
+        <button class="scan-btn" id="scan-btn" disabled aria-label="Scan selected file">
+          SELECT A FILE TO SCAN
+        </button>
+
+        <!-- Loading -->
+        <div class="loading-state" id="loading-state" aria-live="polite">
+          <div class="spinner" role="status"></div>
+          <div class="loading-text">Analysing file<span class="dot-anim"></span></div>
+          <div class="loading-text" id="loading-sub" style="margin-top:6px;font-size:0.72rem;opacity:0.6">Running PE analysis, entropy check, string extraction</div>
+        </div>
+
+      </section>
+
+      <!-- Recent Scans -->
+      <section class="history-section" id="history-section">
+        <div class="section-label">Recent Scans</div>
+        <div class="history-table-wrapper">
+          <table id="history-table" aria-label="Recent scans history">
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Size</th>
+                <th>Verdict</th>
+                <th>Confidence</th>
+                <th>Scanned</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="history-tbody">
+              <tr><td colspan="6" class="empty-history">No scans yet — drop a file above</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       VIEW 2 — RESULT
+  ══════════════════════════════════════════════════════════════════════ -->
+  <div id="view-result" class="view">
+    <div class="container">
+      <section class="result-section">
+
+        <!-- Verdict Banner -->
+        <div class="verdict-banner" id="verdict-banner" role="status" aria-live="polite">
+          <div class="verdict-label">VERDICT</div>
+          <div class="verdict-word" id="verdict-word">—</div>
+          <div class="verdict-confidence" id="verdict-confidence">—</div>
+        </div>
+
+        <!-- Row 1: File Info + ML Score -->
+        <div class="cards-grid">
+
+          <div class="card" id="card-fileinfo">
+            <div class="card-title">File Information</div>
+            <div class="file-info-grid">
+              <div class="info-row"><span class="info-label">Filename</span><span class="info-value" id="info-filename">—</span></div>
+              <div class="info-row"><span class="info-label">File Size</span><span class="info-value" id="info-size">—</span></div>
+              <div class="info-row"><span class="info-label">MD5</span><span class="info-value" id="info-md5">—</span></div>
+              <div class="info-row" style="grid-column:1/-1"><span class="info-label">SHA-256</span><span class="info-value" id="info-sha256">—</span></div>
+            </div>
+          </div>
+
+          <div class="card" id="card-score">
+            <div class="card-title">ML Score</div>
+            <div class="score-bar-container">
+              <div class="score-bar-labels">
+                <span>CLEAN</span><span>MALWARE</span>
+              </div>
+              <div class="score-bar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="score-bar-track">
+                <div class="score-bar-fill" id="score-bar-fill"></div>
+              </div>
+            </div>
+            <div class="score-value" id="score-value">—</div>
+          </div>
+
+        </div>
+
+        <!-- Row 2: Packing + YARA -->
+        <div class="cards-grid">
+
+          <div class="card" id="card-packing">
+            <div class="card-title">Packing / Obfuscation</div>
+            <div class="packing-status">
+              <span class="packing-badge" id="packing-badge">—</span>
+              <span class="packer-name" id="packer-name"></span>
+            </div>
+          </div>
+
+          <div class="card" id="card-yara">
+            <div class="card-title">YARA Rule Matches</div>
+            <div class="yara-list" id="yara-list"></div>
+          </div>
+
+        </div>
+
+        <!-- Indicators -->
+        <div class="card full-width" style="margin-bottom:var(--gap-md)">
+          <div class="card-title">Indicators</div>
+          <div class="indicators-list" id="indicators-list"></div>
+        </div>
+
+        <!-- PE Sections -->
+        <div class="card full-width" style="margin-bottom:var(--gap-md)" id="card-sections">
+          <div class="card-title">PE Sections</div>
+          <div class="history-table-wrapper" style="border:none">
+            <table aria-label="PE sections">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Raw Size</th>
+                  <th>Entropy</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="sections-tbody">
+                <tr><td colspan="4" class="empty-history">No PE section data</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Imports -->
+        <div class="card full-width" style="margin-bottom:var(--gap-md)" id="card-imports">
+          <div class="card-title">Import Table</div>
+          <div class="import-stats" id="import-stats"></div>
+          <div class="suspicious-api-list" id="suspicious-api-list"></div>
+        </div>
+
+        <!-- Strings -->
+        <div class="card full-width" style="margin-bottom:var(--gap-md)" id="card-strings">
+          <div class="card-title">Extracted Strings</div>
+          <div id="strings-collapsibles"></div>
+        </div>
+
+        <!-- Back Button -->
+        <button class="back-btn" id="back-btn" aria-label="Scan another file">
+          ← Scan Another File
+        </button>
+
+      </section>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <span>QUARANTINE</span> · self-hosted malware detection · <span id="footer-scan-count">0 scans</span>
+  </footer>
+
+  <script src="js/report.js"></script>
+  <script src="js/upload.js"></script>
+
+</body>
+</html>
