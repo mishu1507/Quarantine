@@ -1,17 +1,28 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from the project root (two levels up from this file: backend/ → root)
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.abspath(os.path.join(_HERE, '..'))
+load_dotenv(os.path.join(_ROOT, '.env'))
 
 
 class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-key-change-this')
-    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///quarantine.db')
+
+    # Use an absolute path for the SQLite DB so it always lands in instance/
+    _db_path = os.path.join(_ROOT, 'instance', 'quarantine.db')
+    SQLALCHEMY_DATABASE_URI = os.getenv(
+        'DATABASE_URL', f'sqlite:///{_db_path}'
+    )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'data/uploads')
-    MODEL_PATH = os.getenv('MODEL_PATH', 'ml/models/malware_model.pkl')
-    YARA_RULES_PATH = os.getenv('YARA_RULES_PATH', 'yara_rules/index.yar')
-    DIE_BINARY = os.getenv('DIE_BINARY', 'diec')
-    MAX_FILE_SIZE_MB = int(os.getenv('MAX_FILE_SIZE_MB', 50))
-    MAX_CONTENT_LENGTH = int(os.getenv('MAX_FILE_SIZE_MB', 50)) * 1024 * 1024
-    ALLOWED_EXTENSIONS = {'.exe', '.dll', '.sys', '.scr', '.com', '.bin'}
+
+    # Relative paths — app.py will make them absolute at startup
+    UPLOAD_FOLDER    = os.getenv('UPLOAD_FOLDER',    'data/uploads')
+    MODEL_PATH       = os.getenv('MODEL_PATH',       'ml/models/malware_model.pkl')
+    YARA_RULES_PATH  = os.getenv('YARA_RULES_PATH',  'yara_rules/index.yar')
+    DIE_BINARY       = os.getenv('DIE_BINARY',       'diec')
+
+    MAX_FILE_SIZE_MB    = int(os.getenv('MAX_FILE_SIZE_MB', 50))
+    MAX_CONTENT_LENGTH  = int(os.getenv('MAX_FILE_SIZE_MB', 50)) * 1024 * 1024
+    ALLOWED_EXTENSIONS  = {'.exe', '.dll', '.sys', '.scr', '.com', '.bin'}

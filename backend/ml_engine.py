@@ -2,12 +2,50 @@ import os
 import numpy as np
 import joblib
 
+# ── Apply lief compatibility shim BEFORE importing ember ─────────────────────
+# Patches old lief 0.9 exception names that ember 0.1.0 expects
 try:
-    import ember
+    if __package__:
+        from . import lief_compat  # noqa: F401
+    else:
+        from backend import lief_compat  # noqa: F401
+except Exception:
+    pass
+
+# ── Try real ember extractor first (exact feature match with training data) ───
+EMBER_AVAILABLE = False
+
+try:
+    import ember as _ember
+    _extractor = _ember.PEFeatureExtractor(feature_version=2)
     EMBER_AVAILABLE = True
-except ImportError:
-    EMBER_AVAILABLE = False
-    print('[ml_engine] INFO: ember not installed — ML scoring disabled')
+
+    def extract_feature_vector(bytez: bytes):
+        try:
+            return np.array(_extractor.feature_vector(bytez), dtype=np.float32)
+        except Exception as e:
+            print(f'[ml_engine] ember extraction error: {e}')
+            return None
+
+    print('[ml_engine] Feature extractor ready (ember — exact EMBER v2 features)')
+
+except Exception:
+    # Fallback: our lief-based approximation
+    try:
+        if __package__:
+            from .ember_features import extract_feature_vector, LIEF_AVAILABLE
+        else:
+            from backend.ember_features import extract_feature_vector, LIEF_AVAILABLE
+        EMBER_AVAILABLE = LIEF_AVAILABLE
+        if EMBER_AVAILABLE:
+            print('[ml_engine] Feature extractor ready (lief approximation — slight score variance)')
+        else:
+            print('[ml_engine] WARNING: No feature extractor available (install lief)')
+    except Exception:
+        EMBER_AVAILABLE = False
+        def extract_feature_vector(bytez):
+            return None
+        print('[ml_engine] WARNING: No feature extractor available')
 
 # ── Module-level singleton — loaded ONCE at app startup ──────────────────────
 _model = None
@@ -22,7 +60,7 @@ def load_model(model_path: str) -> bool:
     """
     global _model, _model_path
     if not os.path.exists(model_path):
-        print(f'[ml_engine] WARNING: No model at {model_path}. Run ml/train.py first.')
+        print(f'[ml_engine] WARNING: No model at {model_path}. Run ml/train_from_dat.py first.')
         print('[ml_engine] Static analysis + YARA still work without a model.')
         return False
     try:
@@ -36,34 +74,14 @@ def load_model(model_path: str) -> bool:
 
 
 def is_model_loaded() -> bool:
-    """Return True if a model is currently loaded."""
     return _model is not None
-
-
-def extract_features(file_path: str):
-    """
-    Extract EMBER v2 feature vector (2381 dims) from a PE file.
-    Returns np.ndarray of shape (2381,) or None on failure.
-    """
-    if not EMBER_AVAILABLE:
-        return None
-    try:
-        extractor = ember.PEFeatureExtractor(feature_version=2)
-        with open(file_path, 'rb') as f:
-            file_data = f.read()
-        features = extractor.feature_vector(file_data)
-        arr = np.array(features, dtype=np.float32)
-        return arr
-    except Exception as e:
-        print(f'[ml_engine] Feature extraction failed: {e}')
-        return None
 
 
 def predict(file_path: str) -> dict:
     """
     Run ML prediction on a file.
     Always returns a dict — never raises.
-    Falls back gracefully when model or ember are unavailable.
+    Falls back gracefully when model or lief are unavailable.
     """
     base = {
         'ml_score': None,
@@ -74,15 +92,26 @@ def predict(file_path: str) -> dict:
     }
 
     if _model is None:
-        base['error'] = 'Model not loaded — run ml/train.py first'
+        base['error'] = 'Model not loaded — run ml/train_from_dat.py first'
         return base
 
-    features = extract_features(file_path)
+    if not EMBER_AVAILABLE:
+        base['error'] = 'lief not installed — run: pip install lief'
+        return base
+
+    try:
+        with open(file_path, 'rb') as f:
+            bytez = f.read()
+    except Exception as e:
+        base['error'] = f'Cannot read file: {e}'
+        return base
+
+    features = extract_feature_vector(bytez)
     if features is None:
-        base['error'] = 'EMBER feature extraction failed (ember not installed or file unreadable)'
+        base['error'] = 'Feature extraction failed'
         return base
 
-    # Sanitise NaN/Inf that would break the model
+    # Sanitise NaN/Inf
     features = np.nan_to_num(features, nan=0.0, posinf=0.0, neginf=0.0)
 
     try:
@@ -96,7 +125,7 @@ def predict(file_path: str) -> dict:
         else:
             verdict = 'malware'
 
-        # Top-10 most important features (available on tree-based models)
+        # Top-10 most important features (tree-based models)
         top_features = []
         if hasattr(_model, 'feature_importances_'):
             importances = _model.feature_importances_
@@ -119,7 +148,7 @@ def predict(file_path: str) -> dict:
         }
 
     except Exception as e:
-        base['error'] = f'Prediction failed: {type(e).__name__}'
+        base['error'] = f'Prediction failed: {type(e).__name__}: {e}'
         return base
 
 
@@ -130,7 +159,6 @@ def aggregate_verdict(ml_result: dict, static_result: dict) -> dict:
 
     Design principles:
     - Static signals can only BOOST the score — never decrease it.
-      (A clean ML score should never override hard evidence like YARA hits.)
     - If ML is unavailable, fall back to a pure signal-count heuristic.
     - The score is clamped to [0.0, 1.0].
     """

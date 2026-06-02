@@ -1,30 +1,26 @@
-import urllib.request, json, os
+import sys
+sys.path.insert(0, r'D:\QUARANTINE')
+import backend.lief_compat  # patch lief first
+import ember, numpy as np, joblib
 
-test_file = r'C:\Windows\System32\notepad.exe'
-print(f'Testing with: {test_file} ({os.path.getsize(test_file)/1024:.1f} KB)')
+e = ember.PEFeatureExtractor(feature_version=2)
+model = joblib.load(r'D:\QUARANTINE\ml\models\malware_model.pkl')
 
-boundary = 'QuarantineTest1234'
-with open(test_file, 'rb') as f:
-    file_data = f.read()
+def verdict(p):
+    if p < 0.30: return 'CLEAN'
+    if p < 0.70: return 'SUSPICIOUS'
+    return 'MALWARE'
 
-body = (
-    '--' + boundary + '\r\n'
-    'Content-Disposition: form-data; name="file"; filename="notepad.exe"\r\n'
-    'Content-Type: application/octet-stream\r\n\r\n'
-).encode() + file_data + ('\r\n--' + boundary + '--\r\n').encode()
+files = [
+    r'C:\Windows\System32\notepad.exe',
+    r'C:\Windows\System32\calc.exe',
+    r'C:\Windows\System32\cmd.exe',
+]
 
-req = urllib.request.Request(
-    'http://localhost:5000/api/scan',
-    data=body,
-    headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
-    method='POST'
-)
-
-resp = urllib.request.urlopen(req, timeout=60)
-result = json.loads(resp.read())
-print('Verdict:', result['report']['verdict'])
-print('Confidence:', str(round(result['report']['confidence']*100, 1)) + '%')
-print('YARA matches:', result['report']['yara_matches'])
-print('Indicators:')
-for ind in result['report']['indicators'][:8]:
-    print('  [' + ind['severity'].upper() + '] ' + ind['text'])
+for path in files:
+    with open(path, 'rb') as f:
+        data = f.read()
+    vec = np.array(e.feature_vector(data), dtype=np.float32)
+    p = model.predict_proba([vec])[0][1]
+    name = path.split('\\')[-1]
+    print(f'{name:20s}  {p:.2%}  {verdict(p)}')
