@@ -10,15 +10,22 @@ load_dotenv(os.path.join(_ROOT, '.env'))
 class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-key-change-this')
 
-    # Use an absolute path for the SQLite DB so it always lands in instance/
-    _db_path = os.path.join(_ROOT, 'instance', 'quarantine.db')
+    # Check if running in Vercel serverless environment
+    IS_VERCEL = os.getenv('VERCEL') == '1' or os.getenv('VERCEL') is not None
+
+    if IS_VERCEL:
+        _db_path = '/tmp/quarantine.db'
+        UPLOAD_FOLDER = '/tmp/uploads'
+    else:
+        _db_path = os.path.join(_ROOT, 'instance', 'quarantine.db')
+        UPLOAD_FOLDER = os.getenv('UPLOAD_FOLDER', 'data/uploads')
+
     SQLALCHEMY_DATABASE_URI = os.getenv(
         'DATABASE_URL', f'sqlite:///{_db_path}'
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     # Relative paths — app.py will make them absolute at startup
-    UPLOAD_FOLDER    = os.getenv('UPLOAD_FOLDER',    'data/uploads')
     MODEL_PATH       = os.getenv('MODEL_PATH',       'ml/models/malware_model.pkl')
     YARA_RULES_PATH  = os.getenv('YARA_RULES_PATH',  'yara_rules/index.yar')
     DIE_BINARY       = os.getenv('DIE_BINARY',       'diec')
